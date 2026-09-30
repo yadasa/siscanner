@@ -1,19 +1,8 @@
-# One candidate per line.
-# You can use either the stem or the complete .si domain.
-
-priva
-agen
-laten
-lega
-accura
-efficien
-transparen
-concurren
-dependen
-frequen
-curren
-consisten
-redundan
-effica
-competen
-proficien
+# Generated automatically by build-cy-list.ps1 on first scan.
+# Every corpus word ending in -cy is converted by replacing "cy" with ".si".
+# Example: privacy -> priva.si
+#
+# Run:
+#   .\build-cy-list.ps1
+# or simply:
+#   .\scan-si.ps1
