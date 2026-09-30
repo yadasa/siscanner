@@ -3,11 +3,39 @@ param(
     [string]$OutputCsv = ".\si-results.csv",
     [string]$AvailableFile = ".\available.txt",
     [int]$DelayMs = 350,
-    [int]$MaxRetries = 5
+    [int]$MaxRetries = 5,
+    [switch]$SkipCyBuild,
+    [switch]$ForceCyRefresh
 )
 
 $ErrorActionPreference = "Stop"
 $RdapBase = "https://rdap.register.si/domain"
+$UsingDefaultInput = $InputFile -eq ".\words.txt"
+
+if ($UsingDefaultInput) {
+    $InputFile = Join-Path $PSScriptRoot "words.txt"
+}
+
+if (-not $SkipCyBuild -and $UsingDefaultInput) {
+    $builder = Join-Path $PSScriptRoot "build-cy-list.ps1"
+
+    if (-not (Test-Path -LiteralPath $builder)) {
+        throw "Missing list builder: $builder"
+    }
+
+    $buildArgs = @{
+        OutputFile = $InputFile
+        MappingCsv = (Join-Path $PSScriptRoot "cy-mapping.csv")
+        ManualFile = (Join-Path $PSScriptRoot "manual-words.txt")
+        CacheFile  = (Join-Path $PSScriptRoot ".cache\words_alpha.txt")
+    }
+
+    if ($ForceCyRefresh) {
+        $buildArgs.ForceRefresh = $true
+    }
+
+    & $builder @buildArgs
+}
 
 if (-not (Test-Path -LiteralPath $InputFile)) {
     throw "Input file not found: $InputFile"
@@ -23,6 +51,17 @@ $domains = Get-Content -LiteralPath $InputFile |
 
 if (-not $domains) {
     throw "No domain candidates found in $InputFile"
+}
+
+$sourceWordByDomain = @{}
+$mappingFile = Join-Path $PSScriptRoot "cy-mapping.csv"
+
+if (Test-Path -LiteralPath $mappingFile) {
+    Import-Csv -LiteralPath $mappingFile | ForEach-Object {
+        if ($_.Domain -and $_.Word) {
+            $sourceWordByDomain[$_.Domain.ToLowerInvariant()] = $_.Word
+        }
+    }
 }
 
 function Get-RdapStatus {
@@ -100,22 +139,28 @@ foreach ($domain in $domains) {
         default { "UNKNOWN ($status)" }
     }
 
+    $sourceWord = ""
+    if ($sourceWordByDomain.ContainsKey($domain)) {
+        $sourceWord = $sourceWordByDomain[$domain]
+    }
+
     $row = [PSCustomObject]@{
-        Domain = $domain
-        Result = $result
-        HTTP   = $status
+        Word      = $sourceWord
+        Domain    = $domain
+        Result    = $result
+        HTTP      = $status
     }
 
     $results.Add($row)
 
     if ($result -eq "LIKELY AVAILABLE") {
-        Write-Host ("{0,-35} {1}" -f $domain, $result) -ForegroundColor Green
+        Write-Host ("{0,-35} {1,-18} {2}" -f $domain, $result, $sourceWord) -ForegroundColor Green
     }
     elseif ($result -eq "TAKEN") {
-        Write-Host ("{0,-35} {1}" -f $domain, $result) -ForegroundColor DarkGray
+        Write-Host ("{0,-35} {1,-18} {2}" -f $domain, $result, $sourceWord) -ForegroundColor DarkGray
     }
     else {
-        Write-Host ("{0,-35} {1}" -f $domain, $result) -ForegroundColor Yellow
+        Write-Host ("{0,-35} {1,-18} {2}" -f $domain, $result, $sourceWord) -ForegroundColor Yellow
     }
 
     if ($DelayMs -gt 0) {
@@ -137,21 +182,29 @@ $sorted = $results | Sort-Object @{
 
 $sorted | Export-Csv -LiteralPath $OutputCsv -NoTypeInformation
 
-$available = @(
+$availableRows = @(
     $sorted |
-        Where-Object Result -eq "LIKELY AVAILABLE" |
-        Select-Object -ExpandProperty Domain
+        Where-Object Result -eq "LIKELY AVAILABLE"
 )
 
-$available | Set-Content -LiteralPath $AvailableFile
+$availableRows |
+    Select-Object -ExpandProperty Domain |
+    Set-Content -LiteralPath $AvailableFile
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "LIKELY AVAILABLE .SI DOMAINS" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 
-if ($available.Count -gt 0) {
-    $available | ForEach-Object { Write-Host $_ -ForegroundColor Green }
+if ($availableRows.Count -gt 0) {
+    $availableRows | ForEach-Object {
+        if ($_.Word) {
+            Write-Host ("{0,-35} <- {1}" -f $_.Domain, $_.Word) -ForegroundColor Green
+        }
+        else {
+            Write-Host $_.Domain -ForegroundColor Green
+        }
+    }
 }
 else {
     Write-Host "None found in this run." -ForegroundColor Yellow
@@ -159,7 +212,7 @@ else {
 
 Write-Host ""
 Write-Host ("Checked:   {0}" -f $total)
-Write-Host ("Available: {0}" -f $available.Count)
+Write-Host ("Available: {0}" -f $availableRows.Count)
 Write-Host ("CSV:       {0}" -f $OutputCsv)
 Write-Host ("Available: {0}" -f $AvailableFile)
 Write-Host ""
