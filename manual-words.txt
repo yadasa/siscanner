@@ -1,0 +1,5 @@
+# Extra candidates to merge into the generated -cy list.
+# Use either a stem (priva) or a full .si domain (priva.si).
+# The generator already includes normal English -cy words; keep this file for
+# custom, branded, slang, acronym, or non-dictionary candidates.
+
